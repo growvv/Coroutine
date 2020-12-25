@@ -8,7 +8,7 @@
 ```bash
 cd src
 make
-sudo make uninstall
+sudo make install
 ```
 
 **使用**
