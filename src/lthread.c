@@ -139,6 +139,13 @@ _lthread_free(struct lthread *lt)
     free(lt);
 }
 
+/*
+有3种情况：
+    1. LT_ST_CANCELLED
+    2. LT_ST_NEW
+    3. LT_ST_EXITED
+不同的情况，采取不同的恢复措施
+*/
 int
 _lthread_resume(struct lthread *lt)
 {
@@ -147,7 +154,7 @@ _lthread_resume(struct lthread *lt)
 
     if (lt->state & BIT(LT_ST_CANCELLED)) {
         /* if an lthread was joining on it, schedule it to run */
-        if (lt->lt_join) {
+        if (lt->lt_join) {   // 将join进来的lthread取消sleep，插入ready tailq
             _lthread_desched_sleep(lt->lt_join);
             TAILQ_INSERT_TAIL(&sched->ready, lt->lt_join, ready_next);
             lt->lt_join = NULL;
@@ -166,7 +173,7 @@ _lthread_resume(struct lthread *lt)
     sched->current_lthread = lt;
     _switch(&lt->ctx, &lt->sched->ctx);
     sched->current_lthread = NULL;
-    _lthread_madvise(lt);
+    _lthread_madvise(lt);    // 【lfr】有啥用？？
 
     if (lt->state & BIT(LT_ST_EXITED)) {
         if (lt->lt_join) {
@@ -205,7 +212,7 @@ _lthread_madvise(struct lthread *lt)
     if (current_stack < lt->last_stack_size &&
         lt->last_stack_size > lt->sched->page_size) {
         /* round up to the nearest page size */
-        tmp = current_stack + (-current_stack & (lt->sched->page_size - 1));
+        tmp = current_stack + (-current_stack & (lt->sched->page_size - 1));  // 【lfr】这是向上取整？？
         assert(madvise(lt->stack, lt->stack_size - tmp, MADV_DONTNEED) == 0);
     }
 
@@ -221,7 +228,7 @@ _lthread_key_destructor(void *data)
 static void
 _lthread_key_create(void)
 {
-    assert(pthread_key_create(&lthread_sched_key,
+    assert(pthread_key_create(&lthread_sched_key,  // 调用的pthread的，create再set
         _lthread_key_destructor) == 0);
     assert(pthread_setspecific(lthread_sched_key, NULL) == 0);
 
@@ -338,7 +345,7 @@ lthread_create(struct lthread **new_lt, void *fun, void *arg)
     lt->sched = sched;
     lt->stack_size = sched->stack_size;
     lt->state = BIT(LT_ST_NEW);
-    lt->id = sched->spawned_lthreads++;
+    lt->id = sched->spawned_lthreads++;  
     lt->fun = fun;
     lt->fd_wait = -1;
     lt->arg = arg;
@@ -490,7 +497,7 @@ int
 lthread_join(struct lthread *lt, void **ptr, uint64_t timeout)
 {
     struct lthread *current = lthread_get_sched()->current_lthread;
-    lt->lt_join = current;
+    lt->lt_join = current;    // 主要是设置lt_join
     current->lt_exit_ptr = ptr;
     int ret = 0;
 

@@ -120,7 +120,7 @@ struct lthread {
     uint32_t                ops;            /* num of ops since yield */
     uint64_t                sleep_usecs;    /* how long lthread is sleeping */
     RB_ENTRY(lthread)       sleep_node;     /* sleep tree node pointer */
-    RB_ENTRY(lthread)       wait_node;      /* event tree node pointer */
+    RB_ENTRY(lthread)       wait_node;      /* event tree node pointer */  // wait tree??
     LIST_ENTRY(lthread)     busy_next;      /* blocked lthreads */
     TAILQ_ENTRY(lthread)    ready_next;     /* ready to run list */
     TAILQ_ENTRY(lthread)    defer_next;     /* ready to run after deferred job */
@@ -175,7 +175,7 @@ struct lthread_sched {
     struct lthread_q        defer;
     /* lthreads in join/cond_wait/io/compute */
     struct lthread_l        busy;
-    /* lthreads zzzzz */
+    /* lthreads zzzzz */  // xswl!!
     struct lthread_rb_sleep sleeping;
     /* lthreads waiting on socket io */
     struct lthread_rb_wait  waiting;
@@ -210,7 +210,7 @@ void print_timestamp(char *);
 static inline struct lthread_sched*
 lthread_get_sched()
 {
-    return pthread_getspecific(lthread_sched_key);
+    return pthread_getspecific(lthread_sched_key);  // 与pthread_setspecific成对，一个全局（进程级别）的数组，用于存放线程局部存储的键值信息
 }
 
 static inline uint64_t
@@ -224,7 +224,7 @@ _lthread_usec_now(void)
 {
     struct timeval t1 = {0, 0};
     gettimeofday(&t1, NULL);
-    return (t1.tv_sec * 1000000) + t1.tv_usec;
+    return (t1.tv_sec * 1000000) + t1.tv_usec;  // 1s = 1e6usec
 }
 
 #endif

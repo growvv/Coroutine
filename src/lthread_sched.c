@@ -285,7 +285,7 @@ _lthread_cancel_event(struct lthread *lt)
  * tree.
  */
 struct lthread *
-_lthread_desched_event(int fd, enum lthread_event e)
+_lthread_desched_event(int fd, enum lthread_event e)   // 将fd从wait tree上移除
 {
     struct lthread *lt = NULL;
     struct lthread_sched *sched = lthread_get_sched();
@@ -373,8 +373,8 @@ _lthread_sched_sleep(struct lthread *lt, uint64_t msecs)
      * if msecs is 0, we won't schedule lthread otherwise loop until
      * collision resolved(very rare) by incrementing usec++.
      */
-    lt->sleep_usecs = _lthread_diff_usecs(lt->sched->birth,
-        _lthread_usec_now()) + usecs;
+    // 【lfr】为什么不直接用now()+usecs，这样后面也用now()比较，非得减去birth??
+    lt->sleep_usecs = _lthread_diff_usecs(lt->sched->birth, _lthread_usec_now()) + usecs;   
     while (msecs) {
         lt_tmp = RB_INSERT(lthread_rb_sleep, &lt->sched->sleeping, lt);
         if (lt_tmp) {
@@ -417,13 +417,13 @@ _lthread_resume_expired(struct lthread_sched *sched)
     uint64_t t_diff_usecs = 0;
 
     /* current scheduler time */
-    t_diff_usecs = _lthread_diff_usecs(sched->birth, _lthread_usec_now());
+    t_diff_usecs = _lthread_diff_usecs(sched->birth, _lthread_usec_now());  // 【lfr】因为lt->sleep_usecs赋值的时候也减掉了birth
 
     while ((lt = RB_MIN(lthread_rb_sleep, &sched->sleeping)) != NULL) {
 
-        if (lt->sleep_usecs <= t_diff_usecs) {
+        if (lt->sleep_usecs <= t_diff_usecs) {  //  【lfr】sleep完了
             _lthread_cancel_event(lt);
-            _lthread_desched_sleep(lt);
+            _lthread_desched_sleep(lt);    // 从sleep tree上移除
             lt->state |= BIT(LT_ST_EXPIRED);
 
             /* don't clear expired if lthread exited/cancelled */
