@@ -27,6 +27,8 @@
  */
 
 
+// 协程相关，包括yield、resume
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -125,6 +127,7 @@ _exec(void *lt)
     _lthread_yield(lt);
 }
 
+// yield就是将当前的上下文切换到调度器的上下文
 void
 _lthread_yield(struct lthread *lt)
 {
@@ -171,7 +174,7 @@ _lthread_resume(struct lthread *lt)
         _lthread_init(lt);
 
     sched->current_lthread = lt;
-    _switch(&lt->ctx, &lt->sched->ctx);
+    _switch(&lt->ctx, &lt->sched->ctx);    // 一但交换了上下文，就开始运行某个lthread的指令了，如果那个lthread调用了yield，会切回到此处的下一语句
     sched->current_lthread = NULL;
     _lthread_madvise(lt);    // 【lfr】有啥用？？
 
@@ -415,7 +418,7 @@ lthread_cond_wait(struct lthread_cond *c, uint64_t timeout)
     struct lthread *lt = lthread_get_sched()->current_lthread;
     TAILQ_INSERT_TAIL(&c->blocked_lthreads, lt, cond_next);
 
-    _lthread_sched_busy_sleep(lt, timeout);
+    _lthread_sched_busy_sleep(lt, timeout);       // NOTE
 
     if (lt->state & BIT(LT_ST_EXPIRED)) {
         TAILQ_REMOVE(&c->blocked_lthreads, lt, cond_next);

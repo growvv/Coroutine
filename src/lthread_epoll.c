@@ -34,6 +34,7 @@ _lthread_poller_create(void)
     return (epoll_create(1024));
 }
 
+// 获取调度器中就绪的POLL_EVENT_TYPE（实质是epoll_event）事件的个数
 inline int
 _lthread_poller_poll(struct timespec t)
 {
@@ -99,6 +100,7 @@ _lthread_poller_ev_register_wr(int fd)
     assert(ret != -1);
 }
 
+// 返回和该就绪事件相关的文件描述符，例子：轮询发现某个文件描述符有数据了，这是一个事件，被发现有数据的这个文件描述符就是ev->data.fd
 inline int
 _lthread_poller_ev_get_fd(struct epoll_event *ev)
 {
@@ -111,18 +113,21 @@ _lthread_poller_ev_get_event(struct epoll_event *ev)
     return (ev->events);
 }
 
+// 事件的类型是否为：对应的文件描述符被挂断
 inline int
 _lthread_poller_ev_is_eof(struct epoll_event *ev)
 {
     return (ev->events & EPOLLHUP);
 }
 
+// 事件的类型是否为：对应的文件描述符可以写了
 inline int
 _lthread_poller_ev_is_write(struct epoll_event *ev)
 {
     return (ev->events & EPOLLOUT);
 }
 
+// 事件的类型是否为：对应的文件描述符可以读
 inline int
 _lthread_poller_ev_is_read(struct epoll_event *ev)
 {
