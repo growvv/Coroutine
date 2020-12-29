@@ -46,6 +46,7 @@
 static inline int _lthread_sleep_cmp(struct lthread *l1, struct lthread *l2);
 static inline int _lthread_wait_cmp(struct lthread *l1, struct lthread *l2);
 
+// 比较两个lthread的睡眠时间
 static inline int
 _lthread_sleep_cmp(struct lthread *l1, struct lthread *l2)
 {
@@ -56,6 +57,7 @@ _lthread_sleep_cmp(struct lthread *l1, struct lthread *l2)
     return (1);
 }
 
+// 比较两个ltread的fd_wait（fd_wait的具体含义？）
 static inline int
 _lthread_wait_cmp(struct lthread *l1, struct lthread *l2)
 {
@@ -66,8 +68,8 @@ _lthread_wait_cmp(struct lthread *l1, struct lthread *l2)
     return (1);
 }
 
-RB_GENERATE(lthread_rb_sleep, lthread, sleep_node, _lthread_sleep_cmp);
-RB_GENERATE(lthread_rb_wait, lthread, wait_node, _lthread_wait_cmp);
+RB_GENERATE(lthread_rb_sleep, lthread, sleep_node, _lthread_sleep_cmp); // 生成 sleep lthread 的红黑树操作函数
+RB_GENERATE(lthread_rb_wait, lthread, wait_node, _lthread_wait_cmp); // 生成 wait lthread 的红黑树操作
 
 static uint64_t _lthread_min_timeout(struct lthread_sched *);
 
@@ -77,12 +79,13 @@ static inline int _lthread_sched_isdone(struct lthread_sched *sched);
 
 static struct lthread find_lt;
 
+// 大致上是对调度器中的POLL_EVENT_TYPE事件进行轮询，用得到的事件数去设置调度器的相关参数【有些地方还不太明白】
 static int
 _lthread_poll(void)
 {
     struct lthread_sched *sched;
-    sched = lthread_get_sched();
-    struct timespec t = {0, 0};
+    sched = lthread_get_sched();    // 获取当前lthread所属的调度器
+    struct timespec t = {0, 0};     // 给下面的_lthread_poller_poll使用，作为epoll_wait的阻塞时间
     int ret = 0;
     uint64_t usecs = 0;
 
@@ -90,36 +93,39 @@ _lthread_poll(void)
     usecs = _lthread_min_timeout(sched);
 
     /* never sleep if we have an lthread pending in the new queue */
+    // 如果_lthread_min_timeout返回0，或者就绪队列不为空，就直接返回，不会继续去获取POLL_EVENT_TYPE事件
     if (usecs && TAILQ_EMPTY(&sched->ready)) {
-        t.tv_sec =  usecs / 1000000u;
-        if (t.tv_sec != 0)
-            t.tv_nsec  =  (usecs % 1000u)  * 1000000u;
+        // 【感觉这一段应该就是把微秒转换成秒+纳秒，但好像逻辑又不完全对】
+        t.tv_sec =  usecs / 1000000u;   
+        if (t.tv_sec != 0)              
+            t.tv_nsec  =  (usecs % 1000u)  * 1000000u;  // 【就是这里，貌似写错了？】
         else
             t.tv_nsec = usecs * 1000u;
     } else {
-        return 0;
+        return 0;               
         t.tv_nsec = 0;
         t.tv_sec = 0;
     }
 
-
+    // 不断尝试获取就绪的POLL_EVENT_TYPE事件，直到获取成功
     while (1) {
-        ret = _lthread_poller_poll(t);
-        if (ret == -1 && errno == EINTR) {
+        ret = _lthread_poller_poll(t);      // 获取调度器中就绪的 POLL_EVENT_TYPE 个数（本质是epoll_event）
+        if (ret == -1 && errno == EINTR) {  // The call was interrupted by a signal handler before... 见官网，这是一个可接受的error 
             continue;
-        } else if (ret == -1) {
+        } else if (ret == -1) {             // 其它不可接受的error
             perror("error adding events to epoll/kqueue");
             assert(0);
         }
         break;
     }
 
-    sched->nevents = 0;
+    sched->nevents = 0;         // 【？】
     sched->num_new_events = ret;
 
     return (0);
 }
 
+// 【对timeout的理解还不到位】
 static uint64_t
 _lthread_min_timeout(struct lthread_sched *sched)
 {
@@ -127,18 +133,18 @@ _lthread_min_timeout(struct lthread_sched *sched)
     struct lthread *lt = NULL;
 
     t_diff_usecs = _lthread_diff_usecs(sched->birth,
-        _lthread_usec_now());
+        _lthread_usec_now());                   // 从调度器被创建到现在所经过的时间，单位为微秒
     min = sched->default_timeout;
 
     lt = RB_MIN(lthread_rb_sleep, &sched->sleeping);
     if (!lt)
-        return (min);
+        return (min);                           // 如果没有被阻塞的lthread，就返回默认超时时间
 
     min = lt->sleep_usecs;
     if (min > t_diff_usecs)
         return (min - t_diff_usecs);
     else // we are running late on a thread, execute immediately
-        return (0);
+        return (0);                             // 如果存在被阻塞的lthread，但是它被阻塞的时间又比调度器的存在时间短，就返回0【不理解】
 
     return (0);
 }
@@ -146,8 +152,9 @@ _lthread_min_timeout(struct lthread_sched *sched)
 /*
  * Returns 0 if there is a pending job in scheduler or 1 if done and can exit.
  */
+// 调度器是否没有任何任务需要调度了
 static inline int
-_lthread_sched_isdone(struct lthread_sched *sched)
+_lthread_sched_isdone(struct lthread_sched *sched)        // 【defer没有判断？】
 {
     return (RB_EMPTY(&sched->waiting) &&
         LIST_EMPTY(&sched->busy) &&
@@ -155,6 +162,7 @@ _lthread_sched_isdone(struct lthread_sched *sched)
         TAILQ_EMPTY(&sched->ready));
 }
 
+// 核心调度循环
 void
 lthread_run(void)
 {
@@ -172,7 +180,7 @@ lthread_run(void)
 
     while (!_lthread_sched_isdone(sched)) {
 
-        /* 1. start by checking if a sleeping thread needs to wakeup */
+        /* 1. start by checking if a sleeping thread（指lthread） needs to wakeup */ 
         _lthread_resume_expired(sched);
 
         /* 2. check to see if we have any ready threads to run.
@@ -184,7 +192,7 @@ lthread_run(void)
             lt = TAILQ_FIRST(&sched->ready);
             TAILQ_REMOVE(&lt->sched->ready, lt, ready_next);
             _lthread_resume(lt);
-            if (lt == lt_last_ready)
+            if (lt == lt_last_ready)        // 因此，在执行这些lthread的过程中，如果新push了某个lthread，它不会在此次循环被执行
                 break;
         }
 
@@ -203,24 +211,24 @@ lthread_run(void)
         }
 
         /* 4. check if we received any events after lthread_poll */
-        _lthread_poll();
+        _lthread_poll();    // 就绪事件的个数设置在了num_new_events中，在第5步中使用；就绪事件的列表由epoll_wait写在sched->event_list中
 
         /* 5. fire up lthreads that are ready to run */
         while (sched->num_new_events) {
             p = --sched->num_new_events;
 
-            fd = _lthread_poller_ev_get_fd(&sched->eventlist[p]);
+            fd = _lthread_poller_ev_get_fd(&sched->eventlist[p]);   // 获取和就绪事件相关的那个文件描述符
 
             /* 
              * We got signaled via trigger to wakeup from polling & rusume file io.
              * Those lthreads will get handled in step 4.
              */
-            if (fd == sched->eventfd) {
-                _lthread_poller_ev_clear_trigger();
+            if (fd == sched->eventfd) {    // 调度器本身记录了一个fd，作为一个触发器【触发器的用途暂不清楚】，这个fd也会被添加到epoll实例的事件集合中
+                _lthread_poller_ev_clear_trigger(); // 清除触发器就是对fd进行一次读操作
                 continue;
             }
 
-            is_eof = _lthread_poller_ev_is_eof(&sched->eventlist[p]);
+            is_eof = _lthread_poller_ev_is_eof(&sched->eventlist[p]);  // 若事件为：对应的文件描述符被挂断了
             if (is_eof)
                 errno = ECONNRESET;
 
@@ -293,8 +301,8 @@ _lthread_desched_event(int fd, enum lthread_event e)   // 将fd从wait tree上�
 
     lt = RB_FIND(lthread_rb_wait, &sched->waiting, &find_lt);
     if (lt != NULL) {
-        RB_REMOVE(lthread_rb_wait, &lt->sched->waiting, lt);
-        _lthread_desched_sleep(lt);
+        RB_REMOVE(lthread_rb_wait, &lt->sched->waiting, lt);    // 从waiting tree上移除
+        _lthread_desched_sleep(lt);                             // 也将lt从sleeping tree上移除，以防lt在sleeping tree中
     }
 
     return (lt);

@@ -141,8 +141,8 @@ struct lthread {
     nfds_t nfds;
 };
 
-RB_HEAD(lthread_rb_sleep, lthread);
-RB_HEAD(lthread_rb_wait, lthread);
+RB_HEAD(lthread_rb_sleep, lthread);     // 使lthread_rb_sleep 成为一种结构体名称
+RB_HEAD(lthread_rb_wait, lthread);      // 使lthread_rb_wait 成为一种结构体名称
 RB_PROTOTYPE(lthread_rb_wait, lthread, wait_node, _lthread_wait_cmp);
 
 struct lthread_cond {
@@ -150,7 +150,7 @@ struct lthread_cond {
 };
 
 struct lthread_sched {
-    uint64_t            birth;
+    uint64_t            birth;                      // 创建调度器的时间，在sched_create中初始化
     struct cpu_ctx      ctx;
     void                *stack;
     size_t              stack_size;
@@ -159,26 +159,27 @@ struct lthread_sched {
     struct lthread      *current_lthread;
     int                 page_size;
     /* poller variables */
-    int                 poller_fd;
+    int                 poller_fd;                  // 一个epoll实例的描述符，可作为epoll_wait的第一个参数int epfd
 #if defined(__FreeBSD__) || defined(__APPLE__)
     struct kevent       changelist[LT_MAX_EVENTS];
 #endif
     int                 eventfd;
-    POLL_EVENT_TYPE     eventlist[LT_MAX_EVENTS];
+    POLL_EVENT_TYPE     eventlist[LT_MAX_EVENTS];   // epoll实例中的事件集合，可作为epoll_wait的第二个参数struct epoll_event *events
     int                 nevents;
     int                 num_new_events;
     pthread_mutex_t     defer_mutex;
     /* lists to save an lthread depending on its state */
+    // [lmy] 下面的分类值得重点关注
     /* lthreads ready to run */
     struct lthread_q        ready;
     /* lthreads ready to run after io or compute is done */
     struct lthread_q        defer;
     /* lthreads in join/cond_wait/io/compute */
-    struct lthread_l        busy;
-    /* lthreads zzzzz */  // xswl!!
-    struct lthread_rb_sleep sleeping;
+    struct lthread_l        busy;       // 【lmy: 不明，它和run状态有关系吗？】
+    /* lthreads zzzzz */
+    struct lthread_rb_sleep sleeping;   // sleeping lthread，以红黑树存储
     /* lthreads waiting on socket io */
-    struct lthread_rb_wait  waiting;
+    struct lthread_rb_wait  waiting;    // waiting lthread，以红黑树存储，作者指出专用于socket io
 };
 
 
@@ -210,7 +211,7 @@ void print_timestamp(char *);
 static inline struct lthread_sched*
 lthread_get_sched()
 {
-    return pthread_getspecific(lthread_sched_key);  // 与pthread_setspecific成对，一个全局（进程级别）的数组，用于存放线程局部存储的键值信息
+    return pthread_getspecific(lthread_sched_key);  // 获取lthread_sched_key，它是一个线程特有数据（linux编程知识）
 }
 
 static inline uint64_t
@@ -219,12 +220,13 @@ _lthread_diff_usecs(uint64_t t1, uint64_t t2)
     return (t2 - t1);
 }
 
+// 返回1970年1月1日到现在的时间，单位为微秒
 static inline uint64_t
 _lthread_usec_now(void)
 {
     struct timeval t1 = {0, 0};
-    gettimeofday(&t1, NULL);
-    return (t1.tv_sec * 1000000) + t1.tv_usec;  // 1s = 1e6usec
+    gettimeofday(&t1, NULL);                        // 1970年1月1日到现在的时间
+    return (t1.tv_sec * 1000000) + t1.tv_usec;      // 返回微秒，1秒=10^6微秒
 }
 
 #endif
