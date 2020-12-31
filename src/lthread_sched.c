@@ -98,7 +98,7 @@ _lthread_poll(void)
         // 【感觉这一段应该就是把微秒转换成秒+纳秒，但好像逻辑又不完全对】
         t.tv_sec =  usecs / 1000000u;   
         if (t.tv_sec != 0)              
-            t.tv_nsec  =  (usecs % 1000u)  * 1000000u;  // 【就是这里，貌似写错了？】
+            t.tv_nsec  =  (usecs % 1000u)  * 1000000u;  // 【就是这里，貌似写错了？——经讨论，是作者把两个数字写反了】
         else
             t.tv_nsec = usecs * 1000u;
     } else {
