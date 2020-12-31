@@ -76,7 +76,7 @@ enum lthread_event {
     LT_EV_WRITE
 };
 
-enum lthread_compute_st {
+enum lthread_compute_st {   // compute 调度器的状态（在lthread_compute.c中用到）
     LT_COMPUTE_BUSY,
     LT_COMPUTE_FREE,
 };
@@ -135,7 +135,7 @@ struct lthread {
         int err;
     } io;
     /* lthread_compute schduler - when running in compute block */
-    struct lthread_compute_sched    *compute_sched;
+    struct lthread_compute_sched    *compute_sched;         // 若lthread执行在一个compute sched上就会注册这个信息
     int ready_fds; /* # of fds that are ready. for poll(2) */
     struct pollfd *pollfds;
     nfds_t nfds;
@@ -173,7 +173,7 @@ struct lthread_sched {
     /* lthreads ready to run */
     struct lthread_q        ready;
     /* lthreads ready to run after io or compute is done */
-    struct lthread_q        defer;
+    struct lthread_q        defer;      // [lmy] compute sched的_lthread_compute_run中提到，此状态代表该lthread刚刚从一个compute sched还回来
     /* lthreads in join/cond_wait/io/compute */
     struct lthread_l        busy;       // 【lmy: 不明，它和run状态有关系吗？】
     /* lthreads zzzzz */
