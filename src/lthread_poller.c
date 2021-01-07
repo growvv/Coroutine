@@ -40,19 +40,19 @@ _lthread_poller_set_fd_ready(struct lthread *lt, int fd, enum lthread_event e,
      * deschedule them all and cancel events in poller so they don't trigger later.
      */
     int i;
-    if (lt->ready_fds == 0) {
+    if (lt->ready_fds == 0) {       // 就绪事件的个数是在lthread_poll中设定为0，现在依然为0表示poll此前还没有发现目标事件发生过，
+                                    // 因此需要注销其余所有感兴趣的事件（它们放在epoll的数据结构中）
         for (i = 0; i < lt->nfds; i++)
             if (lt->pollfds[i].events & POLLIN) {
-                _lthread_poller_ev_clear_rd(lt->pollfds[i].fd);
+                _lthread_poller_ev_clear_rd(lt->pollfds[i].fd); // poll只是存储lt监听的fd，但实际监听还是利用epoll的数据结构！！
                 _lthread_desched_event(lt->pollfds[i].fd, LT_EV_READ);
             } else if (lt->pollfds[i].events & POLLOUT) {
                 _lthread_poller_ev_clear_wr(lt->pollfds[i].fd);
                 _lthread_desched_event(lt->pollfds[i].fd, LT_EV_WRITE);
             }
     }
-
-
-    lt->pollfds[lt->ready_fds].fd = fd;
+    // 记录下poll上发生的事件，让lt对他们作出相应的处理（调用lthread_poll的地方）
+    lt->pollfds[lt->ready_fds].fd = fd;         
     if (e == LT_EV_WRITE)
         lt->pollfds[lt->ready_fds].events = POLLOUT;
     else

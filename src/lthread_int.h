@@ -113,8 +113,8 @@ struct lthread {
     uint64_t                id;             /* lthread id */
     int64_t                 fd_wait;        /* fd we are waiting on */
     char                    funcname[64];   /* optional func name */
-    struct lthread          *lt_join;       /* lthread we want to join on */
-    void                    **lt_exit_ptr;  /* exit ptr for lthread_join */
+    struct lthread          *lt_join;       /* lthread we want to join on */    // NOTE: 是join到自己的lthread，见lthread_join
+    void                    **lt_exit_ptr;  /* exit ptr for lthread_join */     // 它用于保存pthread_join中的retval参数，即join on的那个lt程终止时的返回值
     void                    *stack;         /* ptr to lthread_stack */
     void                    *ebp;           /* saved for compute sched */
     uint32_t                ops;            /* num of ops since yield */
@@ -136,9 +136,10 @@ struct lthread {
     } io;
     /* lthread_compute schduler - when running in compute block */
     struct lthread_compute_sched    *compute_sched;         // 若lthread执行在一个compute sched上就会注册这个信息
-    int ready_fds; /* # of fds that are ready. for poll(2) */
-    struct pollfd *pollfds;
-    nfds_t nfds;
+    /* 以下用于一个lt监听多个文件描述符，基于linux的poll相关数据结构 */
+    int ready_fds; /* # of fds that are ready. for poll(2) */   // 已经就绪的fd个数
+    struct pollfd *pollfds;     // lt监听的fd数组
+    nfds_t nfds;                // lt监听的fd个数
 };
 
 RB_HEAD(lthread_rb_sleep, lthread);     // 使lthread_rb_sleep 成为一种结构体名称
@@ -146,7 +147,7 @@ RB_HEAD(lthread_rb_wait, lthread);      // 使lthread_rb_wait 成为一种结构
 RB_PROTOTYPE(lthread_rb_wait, lthread, wait_node, _lthread_wait_cmp);
 
 struct lthread_cond {
-    struct lthread_q blocked_lthreads;
+    struct lthread_q blocked_lthreads;      // 阻塞在该cond上的线程队列
 };
 
 struct lthread_sched {
@@ -159,27 +160,31 @@ struct lthread_sched {
     struct lthread      *current_lthread;
     int                 page_size;
     /* poller variables */
-    int                 poller_fd;                  // 一个epoll实例的描述符，可作为epoll_wait的第一个参数int epfd
+    int                 poller_fd;                  // epoll实例的文件描述符
 #if defined(__FreeBSD__) || defined(__APPLE__)
     struct kevent       changelist[LT_MAX_EVENTS];
 #endif
     int                 eventfd;
-    POLL_EVENT_TYPE     eventlist[LT_MAX_EVENTS];   // epoll实例中的事件集合，可作为epoll_wait的第二个参数struct epoll_event *events
+    POLL_EVENT_TYPE     eventlist[LT_MAX_EVENTS];   // epoll实例中的监听的事件集合
     int                 nevents;
     int                 num_new_events;
     pthread_mutex_t     defer_mutex;
     /* lists to save an lthread depending on its state */
-    // [lmy] 下面的分类值得重点关注
+    // [lmy] 事实上，状态只有三种ready,defer,busy
     /* lthreads ready to run */
     struct lthread_q        ready;
     /* lthreads ready to run after io or compute is done */
-    struct lthread_q        defer;      // [lmy] compute sched的_lthread_compute_run中提到，此状态代表该lthread刚刚从一个compute sched还回来
+    struct lthread_q        defer;      // 1) 这里的io和compute类似，也是由一个专门的线程去做，定义了lthread_io_worker这个结构，功能类似于compute sched但更简单
+                                        // 2) compute sched的_lthread_compute_run中提到，此状态代表该lthread刚刚从一个compute sched还回来
     /* lthreads in join/cond_wait/io/compute */
-    struct lthread_l        busy;       // 【lmy: 不明，它和run状态有关系吗？】
+    struct lthread_l        busy;       // 虽然都是busy状态，但实质以及处理的方式却不相同
+                                        // compute密集型会放在另外一个线程上去运行
+                                        // lthread_join、lthread_cond_wait会调用_lthread_sched_busy_sleep阻塞lthread
+                                        // lthread_io_read、lthread_io_write会调用_lthread_io_add，然后yield（即非阻塞式的io）
     /* lthreads zzzzz */
-    struct lthread_rb_sleep sleeping;   // sleeping lthread，以红黑树存储
+    struct lthread_rb_sleep sleeping;   // sleeping lthread，以红黑树存储，sleeping并不是状态
     /* lthreads waiting on socket io */
-    struct lthread_rb_wait  waiting;    // waiting lthread，以红黑树存储，作者指出专用于socket io
+    struct lthread_rb_wait  waiting;    // waiting lthread，以红黑树存储，作者指出专用于socket io，同样的，waiting并不是状态
 };
 
 

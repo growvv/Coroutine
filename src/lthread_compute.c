@@ -259,7 +259,7 @@ _lthread_compute_run(void *arg)
             assert(pthread_mutex_unlock(&lt->sched->defer_mutex) == 0);
 
             /* signal the prev scheduler in case it was sleeping in a poll */
-            _lthread_poller_ev_trigger(lt->sched);
+            _lthread_poller_ev_trigger(lt->sched);      // NOTE：调度器可能阻塞在epoll_wait上，如果这里的计算执行完了，要让原调度器及时醒过来
         }
 
         assert(pthread_mutex_lock(&compute_sched->run_mutex) == 0);
