@@ -48,7 +48,7 @@
     #define FLAG | MSG_NOSIGNAL
 #endif
 
-
+// fd, timeout_ms是函数参数，event为LT_EV_READ或者LT_EV_WRITE
 #define LTHREAD_WAIT(fn, event)                                 \
 fn                                                              \
 {                                                               \
@@ -61,6 +61,7 @@ fn                                                              \
     return (0);                                                 \
 }
 
+// 用于封装read族和recv族的接口，但是为什么使用while？
 #define LTHREAD_RECV(x, y)                                  \
 x {                                                         \
     ssize_t ret = 0;                                        \
@@ -82,6 +83,7 @@ x {                                                         \
     }                                                       \
 }                                                           \
 
+// 依然是read和recv类接口，但要求必须读完指定的字节数，posix好像并没有提供这类接口？
 #define LTHREAD_RECV_EXACT(x, y)                            \
 x {                                                         \
     ssize_t ret = 0;                                        \
@@ -109,7 +111,7 @@ x {                                                         \
     return (recvd);                                         \
 }                                                           \
 
-
+// 用于封装write和send族接口
 #define LTHREAD_SEND(x, y)                                  \
 x {                                                         \
     ssize_t ret = 0;                                        \
@@ -132,6 +134,7 @@ x {                                                         \
     return (sent);                                          \
 }                                                           \
 
+// 用于封装sendmsg和sendto接口
 #define LTHREAD_SEND_ONCE(x, y)                             \
 x {                                                         \
     ssize_t ret = 0;                                        \
@@ -216,6 +219,7 @@ lthread_close(int fd)
     return (close(fd));
 }
 
+// 几乎就是简单地调用了socket()，区别在于另外将其设置为非阻塞的
 int
 lthread_socket(int domain, int type, int protocol)
 {
@@ -229,7 +233,7 @@ lthread_socket(int domain, int type, int protocol)
         return (-1);
     }
 
-    if ((fcntl(fd, F_SETFL, O_NONBLOCK)) == -1) {
+    if ((fcntl(fd, F_SETFL, O_NONBLOCK)) == -1) {     // 修改文件描述符的flag标志为：非阻塞
         close(fd);
         perror("Failed to set socket properties");
         return (-1);
@@ -250,6 +254,7 @@ lthread_socket(int domain, int type, int protocol)
 ssize_t lthread_recv(int fd, void *buf, size_t buf_len, int flags,
     uint64_t timeout);
 
+// 读取一行，返回读取的总字符数，不包括换行符
 ssize_t
 lthread_readline(int fd, char **buf, size_t max, uint64_t timeout)
 {
@@ -263,7 +268,7 @@ lthread_readline(int fd, char **buf, size_t max, uint64_t timeout)
         return (-1);
 
     while (total_read < max) {
-        r = lthread_recv(fd, data + total_read, 1, 0, timeout);
+        r = lthread_recv(fd, data + total_read, 1, 0, timeout); // 此处一次读一个char
 
         if (r == 0 || r == -2 || r == -1) {
             free(data);
@@ -280,6 +285,8 @@ lthread_readline(int fd, char **buf, size_t max, uint64_t timeout)
     return (total_read);
 }
 
+// 几乎就是简单地调用pipe，区别在于将管道的读端fd、写端fd都设置为非阻塞的
+// 【管道本用于进程间通信，作者为什么要封装pipe？】
 int
 lthread_pipe(int fildes[2])
 {
@@ -305,15 +312,17 @@ err:
     return (ret);
 }
 
-LTHREAD_WAIT(int lthread_wait_read(int fd, int timeout_ms), LT_EV_READ);
+LTHREAD_WAIT(int lthread_wait_read(int fd, int timeout_ms), LT_EV_READ);    // lthread_wait_read和lthread_wait_write测试样例中好像都没有
 LTHREAD_WAIT(int lthread_wait_write(int fd, int timeout_ms), LT_EV_WRITE);
 
+// 封装recv
 LTHREAD_RECV(
     ssize_t lthread_recv(int fd, void *buf, size_t length, int flags,
         uint64_t timeout),
     recv(fd, buf, length, flags FLAG)
 )
 
+// 封装read
 LTHREAD_RECV(
     ssize_t lthread_read(int fd, void *buf, size_t length, uint64_t timeout),
     read(fd, buf, length)
@@ -331,39 +340,46 @@ LTHREAD_RECV_EXACT(
     read(fd, buf + recvd, length - recvd)
 )
 
+// 封装recvmsg
 LTHREAD_RECV(
     ssize_t lthread_recvmsg(int fd, struct msghdr *message, int flags,
         uint64_t timeout),
     recvmsg(fd, message, flags FLAG)
 )
 
+// 封装recvfrom
 LTHREAD_RECV(
     ssize_t lthread_recvfrom(int fd, void *buf, size_t length, int flags,
         struct sockaddr *address, socklen_t *address_len, uint64_t timeout),
     recvfrom(fd, buf, length, flags FLAG, address, address_len)
 )
 
+// 封装send
 LTHREAD_SEND(
     ssize_t lthread_send(int fd, const void *buf, size_t length, int flags),
     send(fd, ((char *)buf) + sent, length - sent, flags FLAG)
 )
 
+// 封装write
 LTHREAD_SEND(
     ssize_t lthread_write(int fd, const void *buf, size_t length),
     write(fd, ((char *)buf) + sent, length - sent)
 )
 
+// 封装sendmsg
 LTHREAD_SEND_ONCE(
     ssize_t lthread_sendmsg(int fd, const struct msghdr *message, int flags),
     sendmsg(fd, message, flags FLAG)
 )
 
+// 封装sento
 LTHREAD_SEND_ONCE(
     ssize_t lthread_sendto(int fd, const void *buf, size_t length, int flags,
         const struct sockaddr *dest_addr, socklen_t dest_len),
     sendto(fd, buf, length, flags FLAG, dest_addr, dest_len)
 )
 
+// 封装connect
 int
 lthread_connect(int fd, struct sockaddr *name, socklen_t namelen,
     uint64_t timeout)
@@ -393,6 +409,7 @@ lthread_connect(int fd, struct sockaddr *name, socklen_t namelen,
     return (ret);
 }
 
+// 封装writev，一次写多个fd（socket）
 ssize_t
 lthread_writev(int fd, struct iovec *iov, int iovcnt)
 {
@@ -456,7 +473,9 @@ lthread_sendfile(int fd, int s, off_t offset, size_t nbytes,
 }
 #endif
 
-
+// 对poll的封装，如果timeout是0可以直接非阻塞式调用poll，如果不是0需要自己模拟阻塞式的poll
+// 模拟阻塞式监听的方式很有意思：将描述符和感兴趣的事件注册到epoll中，让epoll_wait去阻塞式地监听
+// 调度器使用_lthread_poller_set_fd_ready，对这里的监听做出一些处理
 int
 lthread_poll(struct pollfd *fds, nfds_t nfds, int timeout)
 {
@@ -481,7 +500,8 @@ lthread_poll(struct pollfd *fds, nfds_t nfds, int timeout)
     lt->state &= CLEARBIT(LT_ST_WAIT_READ);
     lt->state &= CLEARBIT(LT_ST_WAIT_WRITE);
     /* we are waiting on multiple fd events */
-    lt->state |= BIT(LT_ST_WAIT_MULTI);
+    lt->state |= BIT(LT_ST_WAIT_MULTI);     // NOTE：lthread_poll只用于监听多个状态，这是IO多路复用的本意
+                                            // （单个状态只需要调用lthread_wait，lthread_read，lthread_recv这些接口即可）
 
     lt->pollfds = fds;
     lt->nfds = nfds;

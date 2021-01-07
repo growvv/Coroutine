@@ -48,6 +48,8 @@ struct lthread_io_worker {
 
 static struct lthread_io_worker io_workers[IO_WORKERS];
 
+// 初始化两个io_worker的信息，并创建两个载有_lthread_io_worker的线程
+// 注：此函数在使用时只会被执行一次
 static void
 once_routine(void)
 {
@@ -70,16 +72,18 @@ once_routine(void)
 void
 _lthread_io_worker_init()
 {
-    assert(pthread_once(&key_once, once_routine) == 0);
+    assert(pthread_once(&key_once, once_routine) == 0);     // pthread_once和key_once保证once_routine函数只会被调用一次
 }
 
+// io_worker上的主程序，类似compute sched的调度器
+// arg是某个io_worker的信息（结构体指针）
 static void *
 _lthread_io_worker(void *arg)
 {
     struct lthread_io_worker *io_worker = arg;
     struct lthread *lt = NULL;
 
-    assert(pthread_once(&key_once, once_routine) == 0);
+    assert(pthread_once(&key_once, once_routine) == 0);     // 完成两个io_worker的信息初始化和线程创建工作，如果它们还没有被做过
 
     while (1) {
 
@@ -108,22 +112,24 @@ _lthread_io_worker(void *arg)
 
             /* resume it back on the  prev scheduler */
             assert(pthread_mutex_lock(&lt->sched->defer_mutex) == 0);
-            TAILQ_INSERT_TAIL(&lt->sched->defer, lt, defer_next);
+            TAILQ_INSERT_TAIL(&lt->sched->defer, lt, defer_next);       // io完成之后把lt注册到原sched的defer队列中
             assert(pthread_mutex_unlock(&lt->sched->defer_mutex) == 0);
 
             /* signal the prev scheduler in case it was sleeping in a poll */
-            _lthread_poller_ev_trigger(lt->sched);
+            _lthread_poller_ev_trigger(lt->sched);   // 同compute一样，如果原调度器阻塞在epoll_wait上，此处的io完毕后应该它们及时醒过来              
         }
 
         assert(pthread_mutex_lock(&io_worker->run_mutex) == 0);
         pthread_cond_wait(&io_worker->run_mutex_cond,
-            &io_worker->run_mutex);
+            &io_worker->run_mutex);         // 暂时没有io工作要做，整个线程wait
         assert(pthread_mutex_unlock(&io_worker->run_mutex) == 0);
 
     }
 
 }
 
+// 被普通的协程执行，将其上的某个lt放进busy队列，并注册到一个io_worker线程上，
+// 如果该io_worker处于睡眠状态（没有任务而wait中）就唤醒它；注册完毕后yield
 static void
 _lthread_io_add(struct lthread *lt)
 {
@@ -145,10 +151,12 @@ _lthread_io_add(struct lthread *lt)
     _lthread_yield(lt);
 
     /* restore errno we got from io worker, if any */
-    if (lt->io.ret == -1)
+    if (lt->io.ret == -1)       // 从io_worker执行回来后，检查一下io是否成功
         errno = lt->io.err;
 }
 
+// 被普通协程执行，会调用_thread_io_add将自己放到一个io_worker线程上去做io；tests/lthread_io.c中示范了lthread_io_write的使用
+// NOTE: 把io放到专用的io_worker上去执行使得lthread会被阻塞但并不耽误其它lthread的执行，这正是pthread的特点
 ssize_t
 lthread_io_read(int fd, void *buf, size_t nbytes)
 {
@@ -164,6 +172,8 @@ lthread_io_read(int fd, void *buf, size_t nbytes)
     return (lt->io.ret);
 }
 
+// 被普通协程执行，会调用_thread_io_add将自己放到一个io_worker线程上去做io；tests/lthread_io.c中示范了lthread_io_write的使用
+// NOTE: 把io放到专用的io_worker上去执行使得lthread会被阻塞但并不耽误其它lthread的执行，这正是pthread的特点
 ssize_t
 lthread_io_write(int fd, void *buf, size_t nbytes)
 {

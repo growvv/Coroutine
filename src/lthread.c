@@ -273,7 +273,7 @@ _sched_free(struct lthread_sched *sched)
 }
 
 int
-sched_create(size_t stack_size)
+sched_create(size_t stack_size)     // 虽然没有前下划线，但它不是给用户使用的
 {
     struct lthread_sched *new_sched;
     size_t sched_stack_size = 0;
@@ -412,6 +412,7 @@ lthread_cond_create(struct lthread_cond **c)
     return (0);
 }
 
+// NOTE: 等待条件变量的阻塞被设置为busy状态
 int
 lthread_cond_wait(struct lthread_cond *c, uint64_t timeout)
 {
@@ -420,7 +421,7 @@ lthread_cond_wait(struct lthread_cond *c, uint64_t timeout)
 
     _lthread_sched_busy_sleep(lt, timeout);       // NOTE
 
-    if (lt->state & BIT(LT_ST_EXPIRED)) {
+    if (lt->state & BIT(LT_ST_EXPIRED)) {          
         TAILQ_REMOVE(&c->blocked_lthreads, lt, cond_next);
         return (-2);
     }
@@ -452,6 +453,7 @@ lthread_cond_broadcast(struct lthread_cond *c)
     }
 }
 
+// 如果msec为0会直接把它加入到ready队列中去
 void
 lthread_sleep(uint64_t msecs)
 {
@@ -465,6 +467,8 @@ lthread_sleep(uint64_t msecs)
     }
 }
 
+// 如果操作5次还没完成就放进就绪队列中去，应该是调整lt的优先级，即：如果已经运行了很久就尽量先去执行其它的lt
+// 只用于实现socket相关的接口【只有socket接口才需要考虑优先级吗？？】
 void
 _lthread_renice(struct lthread *lt)
 {
@@ -476,6 +480,7 @@ _lthread_renice(struct lthread *lt)
     _lthread_yield(lt);
 }
 
+// 只负责把lt加入到ready中，从sleep rbtree树上移除，以及更改lt的状态都由_lthread_desched_sleep完成
 void
 lthread_wakeup(struct lthread *lt)
 {
@@ -485,6 +490,7 @@ lthread_wakeup(struct lthread *lt)
     }
 }
 
+// 将ptr赋给此时join到它的lthread的 *lt_exit_ptr
 void
 lthread_exit(void *ptr)
 {
@@ -496,12 +502,16 @@ lthread_exit(void *ptr)
     _lthread_yield(lt);
 }
 
+// 把当前lthread join到另一个lt上，它比pthread_join多一个timeout参数。
+// 若在当前协程sleep之前lt已经退出，返回-1；
+// 在当前协程被wake up之后其已被标记为EXPIRED，返回-2；
+// 否则，free掉lt；若lt被标记为CANCELLED，会返回-1，否则返回0
 int
 lthread_join(struct lthread *lt, void **ptr, uint64_t timeout)
 {
     struct lthread *current = lthread_get_sched()->current_lthread;
     lt->lt_join = current;    // 主要是设置lt_join
-    current->lt_exit_ptr = ptr;
+    current->lt_exit_ptr = ptr; 
     int ret = 0;
 
     /* fail if the lthread has exited already */
@@ -523,6 +533,7 @@ lthread_join(struct lthread *lt, void **ptr, uint64_t timeout)
     return (ret);
 }
 
+// 把自己标记为detach状态
 void
 lthread_detach(void)
 {
@@ -530,13 +541,14 @@ lthread_detach(void)
     current->state |= BIT(LT_ST_DETACH);
 }
 
+// 标记某个线程为detach状态
 void
 lthread_detach2(struct lthread *lt)
 {
     lt->state |= BIT(LT_ST_DETACH);
 }
 
-
+// 采用的方式是拷贝f的函数名到lt->funcname
 void
 lthread_set_funcname(const char *f)
 {
@@ -550,6 +562,7 @@ lthread_id(void)
     return (lthread_get_sched()->current_lthread->id);
 }
 
+// 获取自己的lthread信息，返回一个结构体指针
 struct lthread*
 lthread_self(void)
 {

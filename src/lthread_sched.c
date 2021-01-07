@@ -233,23 +233,23 @@ lthread_run(void)
                 errno = ECONNRESET;
 
         #define HANDLE_EV(lt_wr, ev)                                                \
-            lt_wr = _lthread_desched_event(fd, ev);                                 \
+            lt_wr = _lthread_desched_event(fd, ev);  /* 将lt从sleeping tree或者waiting tree中移除 */ \
             if (lt_wr != NULL) {                                                    \
                                                                                     \
                 if (!(lt_wr->state & BIT(LT_ST_WAIT_MULTI))) {                      \
                     if (is_eof)                                                     \
                         lt_wr->state |= BIT(LT_ST_FDEOF);                           \
                     _lthread_resume(lt_wr);                                         \
-                } else {                                                            \
+                } else {    /* 如果lt监听着多个fd，这些fd式借助poll的数据结构记录的 */                                                        \
                     /*                                                              \
                      * this lthread was waiting on multiple events, increment       \
                      * ready_fds and place it on the ready queue to resume after we \
                      * finished counting all ready fds that the lthread was waiting \
                      * on. This is to emulate poll(2) return call.                  \
                      */                                                             \
-                    if (lt_wr->ready_fds == 0)                                      \
-                        TAILQ_INSERT_TAIL(&sched->ready, lt_wr, ready_next);        \
-                    _lthread_poller_set_fd_ready(lt_wr, fd, ev, is_eof);            \
+                    if (lt_wr->ready_fds == 0)   /* ready_fds不为0说明刚刚INSERT过了*/                                   \
+                        TAILQ_INSERT_TAIL(&sched->ready, lt_wr, ready_next);    /* 当然，要在下一轮才会执行，或者说执行完set_fd_ready之后回到调度循环开头时 */        \
+                    _lthread_poller_set_fd_ready(lt_wr, fd, ev, is_eof);  /* 配合lthread_poll（定义在socket.c中）使用，对poll监听做出相应的处理 */          \
                 }                                                                   \
             }                                                                       \
 
@@ -292,8 +292,9 @@ _lthread_cancel_event(struct lthread *lt)
  * It also deschedules the lthread from sleeping in case it was in sleeping
  * tree.
  */
+// 将监听fd的那个lt从wait tree或者sleeping tree上移除
 struct lthread *
-_lthread_desched_event(int fd, enum lthread_event e)   // 将fd从wait tree上移除
+_lthread_desched_event(int fd, enum lthread_event e)   
 {
     struct lthread *lt = NULL;
     struct lthread_sched *sched = lthread_get_sched();
@@ -340,7 +341,7 @@ _lthread_sched_event(struct lthread *lt, int fd, enum lthread_event e,
     }
 
     lt->state |= BIT(st);
-    lt->fd_wait = FD_KEY(fd, e);
+    lt->fd_wait = FD_KEY(fd, e);    // 【FD_KEY作用是什么？？】
     lt_tmp = RB_INSERT(lthread_rb_wait, &lt->sched->waiting, lt);
     assert(lt_tmp == NULL);
     if (timeout == -1)
